@@ -1,20 +1,24 @@
-package org.broadinstitute.hellbender.tools.walkers.haplotypecaller;
+package org.broadinstitute.hellbender.utils.activityprofile;
 
 import htsjdk.samtools.util.Locatable;
 import org.broadinstitute.hellbender.utils.SimpleInterval;
 import org.broadinstitute.hellbender.utils.Utils;
 
 /**
- * The state of an active region walker's isActive call at a specific locus in the genome
+ * The state of an assembly region walker's isActive call at a specific locus in the genome
  */
 public final class ActivityProfileState {
     private final SimpleInterval loc;
-    private final double activeProb;
+    private double activeProb;
     private final Type resultState;
     private final Number resultValue;
 
     public double isActiveProb() {
         return activeProb;
+    }
+
+    public void setIsActiveProb( final double activeProb ) {
+        this.activeProb = activeProb;
     }
 
     public Type getResultState() {

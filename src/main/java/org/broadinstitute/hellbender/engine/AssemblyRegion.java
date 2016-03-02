@@ -1,13 +1,22 @@
-package org.broadinstitute.hellbender.tools.walkers.haplotypecaller;
+package org.broadinstitute.hellbender.engine;
 
 import htsjdk.samtools.SAMFileHeader;
 import htsjdk.samtools.reference.IndexedFastaSequenceFile;
+import htsjdk.samtools.util.Locatable;
+import htsjdk.samtools.util.PeekableIterator;
 import org.broadinstitute.hellbender.utils.IntervalUtils;
 import org.broadinstitute.hellbender.utils.SimpleInterval;
 import org.broadinstitute.hellbender.utils.Utils;
+import org.broadinstitute.hellbender.utils.activityprofile.ActivityProfile;
+import org.broadinstitute.hellbender.utils.activityprofile.ActivityProfileState;
+import org.broadinstitute.hellbender.utils.activityprofile.BandPassActivityProfile;
 import org.broadinstitute.hellbender.utils.clipping.ReadClipper;
+import org.broadinstitute.hellbender.utils.downsampling.DownsamplingMethod;
+import org.broadinstitute.hellbender.utils.locusiterator.LocusIteratorByState;
 import org.broadinstitute.hellbender.utils.read.GATKRead;
 import org.broadinstitute.hellbender.utils.read.ReadCoordinateComparator;
+import org.broadinstitute.hellbender.utils.read.ReadUtils;
+import org.broadinstitute.hellbender.utils.reference.ReferenceBases;
 
 import java.util.*;
 import java.util.stream.Collectors;
@@ -15,35 +24,35 @@ import java.util.stream.Collectors;
 /**
  * Region of the genome that gets assembled by the local assembly engine.
  */
-public final class AssemblyRegion {
+public final class AssemblyRegion implements Locatable {
 
     private final SAMFileHeader header;
 
     /**
-     * The reads included in this active region.  May be empty upon creation, and expand / contract
+     * The reads included in this assembly region.  May be empty upon creation, and expand / contract
      * as reads are added or removed from this region.
      */
     private final List<GATKRead> reads;
 
     /**
      * An ordered list (by genomic coordinate) of the ActivityProfileStates that went
-     * into this active region.  May be empty, which says that no supporting states were
+     * into this assembly region.  May be empty, which says that no supporting states were
      * provided when this region was created.
      */
     private final List<ActivityProfileState> supportingStates;
 
     /**
-     * The raw span of this active region, not including the active region extension
+     * The raw span of this assembly region, not including the region extension
      */
     private final SimpleInterval activeRegionLoc;
 
     /**
-     * The span of this active region on the genome, including the active region extension
+     * The span of this assembly region on the genome, including the region extension
      */
     private final SimpleInterval extendedLoc;
 
     /**
-     * The extension, in bp, of this active region.
+     * The extension, in bp, of this region.
      */
     private final int extension;
 
@@ -54,7 +63,7 @@ public final class AssemblyRegion {
     private final boolean isActive;
 
     /**
-     * The span of this active region, including the bp covered by all reads in this
+     * The span of this assembly region, including the bp covered by all reads in this
      * region.  This union of extensionLoc and the loc of all reads in this region.
      *
      * Must be at least as large as extendedLoc, but may be larger when reads
@@ -68,7 +77,7 @@ public final class AssemblyRegion {
     private boolean hasBeenFinalized;
 
     /**
-     * Create a new ActiveRegion containing no reads
+     * Create a new AssemblyRegion containing no reads
      *
      * @param activeRegionLoc the span of this active region
      * @param supportingStates the states that went into creating this region, or null / empty if none are available.
@@ -76,7 +85,7 @@ public final class AssemblyRegion {
      * @param isActive indicates whether this is an active region, or an inactive one
      * @param extension the active region extension to use for this active region
      */
-    public AssemblyRegion( final SimpleInterval activeRegionLoc, final List<ActivityProfileState> supportingStates, final boolean isActive, final int extension , final SAMFileHeader header) {
+    public AssemblyRegion( final SimpleInterval activeRegionLoc, final List<ActivityProfileState> supportingStates, final boolean isActive, final int extension , final SAMFileHeader header ) {
         Utils.nonNull(activeRegionLoc, "activeRegionLoc cannot be null");
         Utils.nonNull(header, "header cannot be null");
         if ( activeRegionLoc.size() == 0 ) {
@@ -99,7 +108,7 @@ public final class AssemblyRegion {
     }
 
     /**
-     * Create a new genome loc, bounding start and stop by the start and end of contig
+     * Create a new SimpleInterval, bounding start and stop by the start and end of contig
      *
      * This function will return null if start and stop cannot be adjusted in any reasonable way
      * to be on the contig.  For example, if start and stop are both past the end of the contig,
@@ -133,10 +142,25 @@ public final class AssemblyRegion {
     }
 
     /**
-     * Simple interface to create an active region that isActive without any profile state
+     * Simple interface to create an assembly region that isActive without any profile state
      */
     public AssemblyRegion(final SimpleInterval activeRegionLoc, final int extension, final SAMFileHeader header) {
         this(activeRegionLoc, Collections.<ActivityProfileState>emptyList(), true, extension, header);
+    }
+
+    @Override
+    public String getContig() {
+        return activeRegionLoc.getContig();
+    }
+
+    @Override
+    public int getStart() {
+        return activeRegionLoc.getStart();
+    }
+
+    @Override
+    public int getEnd() {
+        return activeRegionLoc.getEnd();
     }
 
     @Override
@@ -153,19 +177,19 @@ public final class AssemblyRegion {
     }
 
     /**
-     * Get the span of this active region including the extension value
-     * @return a non-null GenomeLoc
+     * Get the span of this assembly region including the extension value
+     * @return a non-null SimpleInterval
      */
     public SimpleInterval getExtendedSpan() { return extendedLoc; }
 
     /**
-     * Get the raw span of this active region (excluding the extension)
-     * @return a non-null genome loc
+     * Get the raw span of this assembly region (excluding the extension)
+     * @return a non-null SimpleInterval
      */
     public SimpleInterval getSpan() { return activeRegionLoc; }
 
     /**
-     * Get an unmodifiable copy of the list of reads currently in this active region.
+     * Get an unmodifiable copy of the list of reads currently in this assembly region.
      *
      * The reads are sorted by their coordinate position.
      * @return an unmodifiable and inmutable copy of the reads in the assembly region.
@@ -182,7 +206,7 @@ public final class AssemblyRegion {
     }
 
     /**
-     * Intersect this active region with the allowed intervals, returning a list of active regions
+     * Intersect this assembly region with the allowed intervals, returning a list of active regions
      * that only contain locations present in intervals
      *
      * Note: modifications to the returned list have no effect on this region object.
@@ -202,13 +226,13 @@ public final class AssemblyRegion {
     }
 
     /**
-     * Trim this active to just the span, producing a new active region without any reads that has only
+     * Trim this region to just the span, producing a new assembly region without any reads that has only
      * the extent of newExtend intersected with the current extent
      * @param span the new extend of the active region we want
      * @param extensionSize the extensionSize size we want for the newly trimmed active region
-     * @return a non-null, empty active region
+     * @return a non-null, empty assembly region
      */
-    private AssemblyRegion trim(final SimpleInterval span, final int extensionSize) {
+    public AssemblyRegion trim(final SimpleInterval span, final int extensionSize) {
         Utils.nonNull(span, "Active region extent cannot be null");
         if ( extensionSize < 0) {
             throw new IllegalArgumentException("the extensionSize size must be 0 or greater");
@@ -219,7 +243,7 @@ public final class AssemblyRegion {
         final SimpleInterval extendedSpan = new SimpleInterval(span.getContig(), extendStart, extendStop);
         return trim(span, extendedSpan);
 
-//TODO - Inconsiste support of substates trimming. Check lack of consistency!!!!
+//TODO - Inconsistent support of substates trimming. Check lack of consistency!!!!
 //        final GenomeLoc subLoc = getLocation().intersect(span);
 //        final int subStart = subLoc.getStart() - getLocation().getStart();
 //        final int subEnd = subStart + subLoc.size();
@@ -236,10 +260,10 @@ public final class AssemblyRegion {
     }
 
     /**
-     * Trim this active to no more than the span, producing a new active region with properly trimmed reads that
-     * attempts to provide the best possible representation of this active region covering the span.
+     * Trim this region to no more than the span, producing a new assembly region with properly trimmed reads that
+     * attempts to provide the best possible representation of this region covering the span.
      *
-     * The challenge here is that span may (1) be larger than can be represented by this active region
+     * The challenge here is that span may (1) be larger than can be represented by this assembly region
      * + its original extension and (2) the extension must be symmetric on both sides.  This algorithm
      * therefore determines how best to represent span as a subset of the span of this
      * region with a padding value that captures as much of the span as possible.
@@ -249,15 +273,15 @@ public final class AssemblyRegion {
      * Active:    100-200 with extension of 50, so that the true span is 50-250
      * NewExtent: 150-225 saying that we'd ideally like to just have bases 150-225
      *
-     * Here we represent the active region as a active region from 150-200 with 25 bp of padding.
+     * Here we represent the assembly region as a region from 150-200 with 25 bp of padding.
      *
-     * The overall constraint is that the active region can never exceed the original active region, and
+     * The overall constraint is that the region can never exceed the original region, and
      * the extension is chosen to maximize overlap with the desired region
      *
      * @param span the new extend of the active region we want
      * @return a non-null, empty active region
      */
-    private AssemblyRegion trim(final SimpleInterval span, final SimpleInterval extendedSpan) {
+    public AssemblyRegion trim(final SimpleInterval span, final SimpleInterval extendedSpan) {
         Utils.nonNull(span, "Active region extent cannot be null");
         Utils.nonNull(extendedSpan, "Active region extended span cannot be null");
         if ( ! extendedSpan.contains(span)) {
@@ -295,13 +319,17 @@ public final class AssemblyRegion {
      * @param read the read we want to test
      * @return true if read can be added to this region, false otherwise
      */
-    private boolean readOverlapsRegion(final GATKRead read) {
+    public boolean readOverlapsRegion(final GATKRead read) {
+        if ( read.getStart() > read.getEnd() ) {
+            return false;
+        }
+
         final SimpleInterval readLoc = new SimpleInterval( read );
         return readLoc.overlaps(extendedLoc);
     }
 
     /**
-     * Add read to this active region
+     * Add read to this region
      *
      * Read must have alignment start >= than the last read currently in this active region.
      *
@@ -333,13 +361,13 @@ public final class AssemblyRegion {
     }
 
     /**
-     * Get the number of reads currently in this active region
+     * Get the number of reads currently in this region
      * @return an integer >= 0
      */
     public int size() { return reads.size(); }
 
     /**
-     * Clear all of the reads currently in this active region
+     * Clear all of the reads currently in this region
      */
     public void clearReads() {
         spanIncludingReads = extendedLoc;
@@ -347,7 +375,7 @@ public final class AssemblyRegion {
     }
 
     /**
-     * Remove all of the reads in readsToRemove from this active region
+     * Remove all of the reads in readsToRemove from this region
      * @param readsToRemove the set of reads we want to remove
      */
     public void removeAll( final Collection<GATKRead> readsToRemove ) {
@@ -360,7 +388,7 @@ public final class AssemblyRegion {
     }
 
     /**
-     * Add all readsToAdd to this active region
+     * Add all readsToAdd to this region
      * @param readsToAdd a collection of readsToAdd to add to this active region
      */
     public void addAll(final Collection<GATKRead> readsToAdd){
@@ -482,5 +510,100 @@ public final class AssemblyRegion {
 
     public boolean isFinalized() {
         return hasBeenFinalized;
+    }
+
+    /**
+     * Divide a read shard up into one or more AssemblyRegions using the provided AssemblyRegionEvaluator to find
+     * the borders between "active" and "inactive" regions within the shard.
+     *
+     * @param shard ReadShard to divide into assembly regions
+     * @param readsHeader header for the reads
+     * @param referenceContext reference data overlapping the shard's extended span (including padding)
+     * @param features features overlapping the shard's extended span (including padding)
+     * @param evaluator AssemblyRegionEvaluator used to label each locus as either active or inactive
+     * @param minRegionSize minimum size for each assembly region
+     * @param maxRegionSize maximum size for each assembly region
+     * @param assemblyRegionPadding each assembly region will be padded by this amount on each side
+     * @param activeProbThreshold minimum probability for a site to be considered active, as reported by the provided evaluator
+     * @param maxProbPropagationDistance maximum number of bases probabilities can propagate in each direction when finding region boundaries
+     * @return a Iterable over one or more AssemblyRegions, each marked as either "active" or "inactive", spanning
+     *         part of the provided ReadShard, and filled with all reads that overlap the region.
+     */
+    public static Iterable<AssemblyRegion> createFromReadShard( final ReadShard shard,
+                                                                final SAMFileHeader readsHeader,
+                                                                final ReferenceContext referenceContext,
+                                                                final FeatureContext features,
+                                                                final AssemblyRegionEvaluator evaluator,
+                                                                final int minRegionSize,
+                                                                final int maxRegionSize,
+                                                                final int assemblyRegionPadding,
+                                                                final double activeProbThreshold,
+                                                                final int maxProbPropagationDistance ) {
+        Utils.nonNull(shard);
+        Utils.nonNull(readsHeader);
+        Utils.nonNull(referenceContext);
+        Utils.nonNull(features);
+        Utils.nonNull(evaluator);
+        Utils.validateArg(minRegionSize >= 1, "minRegionSize must be >= 1");
+        Utils.validateArg(maxRegionSize >= 1, "maxRegionSize must be >= 1");
+        Utils.validateArg(minRegionSize <= maxRegionSize, "minRegionSize must be <= maxRegionSize");
+        Utils.validateArg(assemblyRegionPadding >= 0, "assemblyRegionPadding must be >= 0");
+        Utils.validateArg(activeProbThreshold >= 0.0, "activeProbThreshold must be >= 0.0");
+        Utils.validateArg(maxProbPropagationDistance >= 0, "maxProbPropagationDistance must be >= 0");
+
+        // TODO: refactor this method so that we don't need to load all reads from the shard into memory at once!
+        final List<GATKRead> windowReads = new ArrayList<>();
+        for ( final GATKRead read : shard ) {
+            windowReads.add(read);
+        }
+
+        final LocusIteratorByState locusIterator = new LocusIteratorByState(windowReads.iterator(), DownsamplingMethod.NONE, false, false, ReadUtils.getSamplesFromHeader(readsHeader), readsHeader);
+        final ActivityProfile activityProfile = new BandPassActivityProfile(null, maxProbPropagationDistance, activeProbThreshold, BandPassActivityProfile.MAX_FILTER_SIZE, BandPassActivityProfile.DEFAULT_SIGMA, readsHeader);
+
+        // First, use our activity profile to determine the bounds of each assembly region:
+        List<AssemblyRegion> assemblyRegions = new ArrayList<>();
+        for ( final AlignmentContext pileup : locusIterator ) {
+            if ( ! activityProfile.isEmpty() ) {
+                final boolean forceConversion = pileup.getLocation().getStart() != activityProfile.getEnd() + 1;
+                assemblyRegions.addAll(activityProfile.popReadyAssemblyRegions(assemblyRegionPadding, minRegionSize, maxRegionSize, forceConversion));
+            }
+
+            if ( shard.getPaddedInterval().contains(pileup.getLocation()) ) {
+                final SimpleInterval pileupInterval = new SimpleInterval(pileup.getLocation());
+                final ReferenceBases refBase = new ReferenceBases(new byte[]{referenceContext.getBases()[pileup.getLocation().getStart() - referenceContext.getWindow().getStart()]}, pileupInterval);
+                final ReferenceContext pileupRefContext = new ReferenceContext(new ReferenceMemorySource(refBase, readsHeader.getSequenceDictionary()), pileupInterval);
+
+                final ActivityProfileState profile = evaluator.isActive(pileup, pileupRefContext, features);
+                activityProfile.add(profile);
+            }
+        }
+        assemblyRegions.addAll(activityProfile.popReadyAssemblyRegions(assemblyRegionPadding, minRegionSize, maxRegionSize, true));
+
+        // Then, fill the assembly regions with overlapping reads from the shard:
+        final PeekableIterator<GATKRead> reads = new PeekableIterator<>(windowReads.iterator());
+        AssemblyRegion lastRegion = null;
+        for ( final AssemblyRegion region : assemblyRegions ) {
+            if ( lastRegion != null ) {
+                for ( final GATKRead lastRegionRead : lastRegion.getReads() ) {
+                    if ( region.getExtendedSpan().overlaps(lastRegionRead) ) {
+                        region.add(lastRegionRead);
+                    }
+                }
+            }
+
+            while ( reads.hasNext() ) {
+                final GATKRead read = reads.peek();
+                if ( region.getExtendedSpan().overlaps(read) ) {
+                    region.add(reads.next());
+                }
+                else {
+                    break;
+                }
+            }
+
+            lastRegion = region;
+        }
+
+        return assemblyRegions;
     }
 }

@@ -9,8 +9,8 @@ import htsjdk.samtools.util.Locatable;
 import htsjdk.variant.variantcontext.*;
 import htsjdk.variant.vcf.VCFHeaderLine;
 import htsjdk.variant.vcf.VCFSimpleHeaderLine;
-import org.apache.commons.math3.stat.descriptive.moment.Mean;
 import org.broadinstitute.hellbender.engine.AlignmentContext;
+import org.broadinstitute.hellbender.engine.AssemblyRegion;
 import org.broadinstitute.hellbender.tools.walkers.genotyper.InfiniteRandomMatingPopulationModel;
 import org.broadinstitute.hellbender.tools.walkers.genotyper.PloidyModel;
 import org.broadinstitute.hellbender.utils.MathUtils;
@@ -301,11 +301,11 @@ public final class ReferenceConfidenceModel {
      * @param hqSoftClips running average data structure (can be null) to collect information about the number of high quality soft clips
      * @return a RefVsAnyResult genotype call.
      */
-    private RefVsAnyResult calcGenotypeLikelihoodsOfRefVsAny(final int ploidy,
+    public RefVsAnyResult calcGenotypeLikelihoodsOfRefVsAny(final int ploidy,
                                                         final ReadPileup pileup,
                                                         final byte refBase,
                                                         final byte minBaseQual,
-                                                        final Mean hqSoftClips) {
+                                                        final MathUtils.RunningAverage hqSoftClips) {
 
         final int likelihoodCount = ploidy + 1;
         final double log10Ploidy = MathUtils.log10(ploidy);
@@ -327,7 +327,7 @@ public final class ReferenceConfidenceModel {
         return result;
     }
 
-    private void applyPileupElementRefVsNonRefLikelihoodAndCount(final byte refBase, final int likelihoodCount, final double log10Ploidy, final RefVsAnyResult result, final PileupElement element, final byte qual, final Mean hqSoftClips) {
+    private void applyPileupElementRefVsNonRefLikelihoodAndCount(final byte refBase, final int likelihoodCount, final double log10Ploidy, final RefVsAnyResult result, final PileupElement element, final byte qual, final MathUtils.RunningAverage hqSoftClips) {
         final boolean isAlt = element.getBase() != refBase || element.isDeletion() || element.isBeforeDeletionStart()
                 || element.isAfterDeletionEnd() || element.isBeforeInsertion() || element.isAfterInsertion() || element.isNextToSoftClip();
         final double referenceLikelihood;
@@ -352,7 +352,7 @@ public final class ReferenceConfidenceModel {
                             nonRefLikelihood + MathUtils.log10(i)));
         }
         if (isAlt && hqSoftClips != null && element.isNextToSoftClip()) {
-            hqSoftClips.increment(AlignmentUtils.calcNumHighQualitySoftClips(element.getRead(), HQ_BASE_QUALITY_SOFTCLIP_THRESHOLD));
+            hqSoftClips.add(AlignmentUtils.calcNumHighQualitySoftClips(element.getRead(), HQ_BASE_QUALITY_SOFTCLIP_THRESHOLD));
         }
     }
 
