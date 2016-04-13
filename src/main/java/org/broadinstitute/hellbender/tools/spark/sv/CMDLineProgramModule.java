@@ -27,7 +27,7 @@ public abstract class CMDLineProgramModule {
      * @param runtimeArguments          arguments to be provided to the program
      * @param directoryToWorkIn         a directory for the program to work in (mainly for output)
      * @param stdoutDestination         redirects the stdout from the program to a file
-     * @param stderrMessageDestination  redirects the stderr message to a string
+     * @param stderrMessageDestination  appends the stderr message to a string, which is assumed to be not null
      * @throws IOException
      * @throws InterruptedException
      * @throws RuntimeException
@@ -46,7 +46,7 @@ public abstract class CMDLineProgramModule {
 
         Process runProcess = builder.start();
         int exitStatus = runProcess.waitFor();
-        stderrMessageDestination = redirectSTDERR(runProcess);
+        stderrMessageDestination += redirectSTDERR(runProcess);
 
         if(0!=exitStatus){ onError(commands, stderrMessageDestination, exitStatus); }
     }
