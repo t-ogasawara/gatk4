@@ -11,6 +11,8 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
 import java.io.IOException;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 
 /**
  * Tests RunMinimalBWAMEM.
@@ -18,16 +20,10 @@ import java.io.IOException;
 public final class RunMinimalBWAMEMTest extends CommandLineProgramTest {
 
     private static final File TEST_DATA_DIR = new File(getTestDataDir(), "spark/sv/RunMinimalBWAMEM");
+    private static final Path bwaPath = Paths.get("/user/local/bin/bwa");
 
     @Test(groups="sv")
     public void testSeparate() throws IOException {
-
-        try{
-            CMDLineProgramModule.checkIfProgramIsAvailableOnHost("bwa");
-        } catch(final IOException e){
-            System.err.println(e.getMessage());
-            return;
-        }
 
         final ArgumentsBuilder args = new ArgumentsBuilder();
         final File samOutput = boilerPlate(args);
@@ -49,13 +45,6 @@ public final class RunMinimalBWAMEMTest extends CommandLineProgramTest {
     @Test(groups="sv")
     public void testInterLeaved() throws IOException {
 
-        try{
-            CMDLineProgramModule.checkIfProgramIsAvailableOnHost("bwa");
-        } catch(final IOException e){
-            System.err.println(e.getMessage());
-            return;
-        }
-
         final ArgumentsBuilder args = new ArgumentsBuilder();
         final File samOutput = boilerPlate(args);
 
@@ -72,6 +61,9 @@ public final class RunMinimalBWAMEMTest extends CommandLineProgramTest {
     }
 
     private static File boilerPlate(final ArgumentsBuilder args) throws IOException{
+
+        args.add("-" + "bwaPath");
+        args.add(bwaPath.toString());
 
         final File wkDir = BaseTest.createTempDir("dummy");
         args.add("-" + "outDir");

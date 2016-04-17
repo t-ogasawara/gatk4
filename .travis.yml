@@ -53,7 +53,12 @@ before_install:
 #install gcc
 - sudo apt-get install -y --force-yes  gcc
 - gcc --version
-#install git-lfs
+#install Apache-2 BWA
+- sudo mkdir bwaApache2Build
+- git clone git@github.com:lh3/bwa.git -b Apache2 --single-branch bwaApache2Build
+- 
+- cd bwaApache2Build && make
+- cd -
 install:
 - if [[ $TRAVIS_SECURE_ENV_VARS == false && $CLOUD == mandatory ]]; then
     echo "Can't run cloud tests without keys so don't bother building";
@@ -61,6 +66,7 @@ install:
     ./gradlew assemble;
   fi
 script:
+#install git-lfs
 - if [[ $TRAVIS_SECURE_ENV_VARS == false && $CLOUD == mandatory ]]; then
     echo "Can't run cloud tests without keys so don't run tests";
   else

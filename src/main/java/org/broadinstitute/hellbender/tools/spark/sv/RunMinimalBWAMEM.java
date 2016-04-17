@@ -10,6 +10,7 @@ import org.broadinstitute.hellbender.cmdline.programgroups.StructuralVariationSp
 import java.io.*;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.List;
 import java.util.ArrayList;
 
 // TODO: choose which parameters allowed to be tunable
@@ -20,6 +21,12 @@ import java.util.ArrayList;
         oneLineSummary = "Minimal work to call BWAMEM.",
         programGroup   = StructuralVariationSparkProgramGroup.class)
 public final class RunMinimalBWAMEM extends CommandLineProgram {
+
+    @Argument(doc       = "Absolute path to BWA program.",
+            shortName = "bwaPath",
+            fullName  = "fullPathToBWA",
+            optional  = false)
+    public String pathToBWA = null;
 
     @Argument(doc       = "Absolute path to input FASTQ/A file to be aligned.",
               shortName = StandardArgumentDefinitions.INPUT_SHORT_NAME,
@@ -64,6 +71,12 @@ public final class RunMinimalBWAMEM extends CommandLineProgram {
               optional  = false)
     public String outputDir = null;
 
+    @Argument(doc       = "File name where stderr of running bwa should be redirected to.",
+            shortName = "eFile",
+            fullName  = "stderFile",
+            optional  = true)
+    public String stderrDestFileName = null;
+
     @Argument(doc       = "Number of threads to use when running bwa.",
               shortName = "t",
               fullName  = "threads",
@@ -77,7 +90,7 @@ public final class RunMinimalBWAMEM extends CommandLineProgram {
     public long chunkSize = 0;
 
     @Override
-    public String doWork() throws RuntimeException{
+    public String doWork(){
 
         final boolean validOptions = (null==secondInput) ? !(interLeaved && SEInput) : (!interLeaved || SEInput);
         if(!validOptions){
@@ -86,27 +99,25 @@ public final class RunMinimalBWAMEM extends CommandLineProgram {
 
         String stderrMessage = new String( LogManager.getLogger(this.getClass()).toString() );
 
-        try{
-            final BWAMEMModule bwamem = new BWAMEMModule();
+        final BWAMEMModule bwamem = new BWAMEMModule();
 
-            final ArrayList<String> bwaArgs = makeArgs();
+        final List<String> bwaArgs = makeArgs();
 
-            final File wkDir = new File(outputDir);
-            final File samFile = new File(wkDir, samOutput);
+        final File wkDir = new File(outputDir);
+        final File samFile = new File(wkDir, samOutput);
 
-            bwamem.run(bwaArgs, wkDir, samFile, stderrMessage);
-        } catch(final IOException e){
-            throw new RuntimeException(e.getMessage());
-        } catch(final InterruptedException e){
-            throw new RuntimeException(e.getMessage());
+        File stderrDestFile = null;
+        if(null!=stderrDestFileName) {
+            stderrDestFile = new File(wkDir, stderrDestFileName);
         }
 
-        System.out.println(stderrMessage);
+        bwamem.run(Paths.get(pathToBWA), bwaArgs, wkDir, samFile, stderrDestFile);
+
         return stderrMessage;
     }
 
-    private ArrayList<String> makeArgs(){
-        final ArrayList<String> args = new ArrayList<>();
+    private List<String> makeArgs(){
+        final List<String> args = new ArrayList<>();
 
         final Path pathToReference = Paths.get(reference);
         final Path pathToInput = Paths.get(input);
