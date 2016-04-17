@@ -20,7 +20,14 @@ import java.nio.file.Paths;
 public final class RunMinimalBWAMEMTest extends CommandLineProgramTest {
 
     private static final File TEST_DATA_DIR = new File(getTestDataDir(), "spark/sv/RunMinimalBWAMEM");
-    private static final Path bwaPath = Paths.get("/user/local/bin/bwa");
+    private static final Path bwaPath;
+    static {
+        if (System.getProperty("user.name").equalsIgnoreCase("shuang")) {
+            bwaPath = Paths.get("/usr/local/bin/bwa");
+        } else {
+            bwaPath = Paths.get(System.getProperty("user.dir") + System.getProperty("path.separator") + "bwaApache2Build");
+        }
+    }
 
     @Test(groups="sv")
     public void testSeparate() throws IOException {
